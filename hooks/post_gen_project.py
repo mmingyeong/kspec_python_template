@@ -16,6 +16,7 @@ from invoke.exceptions import UnexpectedExit
 PACKAGING_SYSTEM = '{{ cookiecutter.packaging_system }}'
 
 GITUSER = '{{ cookiecutter.github_organisation }}'
+PIPNAME = '{{ cookiecutter.pip_name }}'
 PKGNAME = '{{ cookiecutter.package_name }}'
 
 CURRENTDIR = os.path.abspath(os.curdir)
@@ -30,7 +31,12 @@ def copy_packaging_system():
     # on the cookiecutter configuration, we move the appropriate files and
     # remove the other ones.
 
-    pack_dir = 'poetry'
+    if PACKAGING_SYSTEM == 'setuptools':
+        pack_dir = 'setup_cfg'
+    elif PACKAGING_SYSTEM == 'poetry':
+        pack_dir = 'poetry'
+    else:
+        raise ValueError(f'invalid packaging system {PACKAGING_SYSTEM!r}.')
 
     files = os.listdir(pack_dir)
     for file_ in files:
@@ -40,7 +46,7 @@ def copy_packaging_system():
             shutil.move(os.path.join(pack_dir, file_), CURRENTDIR)
 
     # Delete both directories
-    for dir_ in ['poetry']:
+    for dir_ in ['setup_cfg', 'poetry']:
         shutil.rmtree(dir_, ignore_errors=True)
 
 
@@ -60,7 +66,50 @@ def install(ctx):
             print('Permission denied during install.  Trying again with sudo')
             ctx.run('sudo python -d setup.py install')
 
-col = invoke.Collection(install)
+
+@invoke.task
+def addgit(ctx):
+    ''' Cleans and installs the new repo '''
+
+    os.chdir(CURRENTDIR)
+    print('Initializing git repo {0}'.format(PKGNAME))
+    ctx.run("git init .")
+    ctx.run("git add .")
+    ctx.run("git commit -m 'Initial skeleton.'")
+
+
+@invoke.task
+def addremote(ctx):
+    ''' Adds a new remote to your git repo and pushes to Github '''
+
+    if GITUSER:
+        ctx.run('git remote add origin https://github.com/{0}/{1}.git'
+                .format(GITUSER, PKGNAME))
+        try:
+            print('Pushing to github ..')
+            ctx.run("git push -u origin main")
+        except Exception:
+            print('Could not push to github. ERROR: Repository not found. '
+                  'Make sure to add the repo to your github account. ')
+    else:
+        print('No GitHub username specified during setup')
+
+
+col = invoke.Collection(install, addgit, addremote)
 ex = invoke.executor.Executor(col)
+
+copy_packaging_system()
+ex.execute('install_sdsstools')
+
+# setup intial git repo
+creategit = '{{ cookiecutter.create_git_repo }}'
+if creategit in ['yes', 'y']:
+    ex.execute('addgit')
+
+# exists on Github?
+exists_github = '{{ cookiecutter.exists_on_github }}'
+if exists_github in ['yes', 'y']:
+    ex.execute('addremote')
+
 
 print('Please add {0} into your PYTHONPATH!'.format(PYTHONDIR))
